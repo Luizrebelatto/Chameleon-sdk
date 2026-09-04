@@ -1,0 +1,19 @@
+{
+  "name": "@chameleon/marketplace-connections",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hosted marketplace connection primitives for Chameleon.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "check": "node --experimental-transform-types --check src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-transform-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2"
+  }
+}

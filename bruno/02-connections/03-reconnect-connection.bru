@@ -1,0 +1,32 @@
+meta {
+  name: Reconnect Connection
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/v1/connections/{{connectionId}}/reconnect
+  body: none
+  auth: none
+}
+
+headers {
+  authorization: Bearer {{secretKey}}
+  idempotency-key: {{idempotencyKey}}
+}
+
+script:pre-request {
+  bru.setVar("idempotencyKey", `bruno-${Date.now()}`);
+}
+
+script:post-response {
+  bru.setVar("connectUrl", res.body.connectUrl);
+}
+
+tests {
+  test("creates a new hosted session for the same connection", function() {
+    expect(res.status).to.equal(200);
+    expect(res.body.connectionId).to.equal(bru.getVar("connectionId"));
+    expect(res.body.connectUrl).to.be.a("string");
+  });
+}

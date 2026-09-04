@@ -1,0 +1,24 @@
+meta {
+  name: Get Pending Connection
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/v1/connections/{{connectionId}}
+  body: none
+  auth: none
+}
+
+headers {
+  authorization: Bearer {{secretKey}}
+}
+
+tests {
+  test("returns the connection without Amazon credentials", function() {
+    expect(res.status).to.equal(200);
+    expect(res.body.id).to.equal(bru.getVar("connectionId"));
+    expect(JSON.stringify(res.body)).not.to.include("refreshToken");
+    expect(JSON.stringify(res.body)).not.to.include("accessToken");
+  });
+}

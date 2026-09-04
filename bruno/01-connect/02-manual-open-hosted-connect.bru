@@ -1,0 +1,27 @@
+meta {
+  name: MANUAL - Open Hosted Connect
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{connectUrl}}
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  // Preserve the first redirect so the Seller Central URL can be inspected.
+  req.setMaxRedirects(0);
+}
+
+script:post-response {
+  bru.setVar("sellerCentralUrl", res.getHeader("location"));
+}
+
+tests {
+  test("starts the hosted Amazon authorization", function() {
+    expect(res.status).to.equal(302);
+    expect(res.getHeader("location")).to.include("sellercentral.amazon.com");
+  });
+}

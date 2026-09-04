@@ -1,0 +1,42 @@
+meta {
+  name: Create Amazon Connect Session
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/v1/connect_sessions
+  body: json
+  auth: none
+}
+
+headers {
+  authorization: Bearer {{secretKey}}
+  content-type: application/json
+  idempotency-key: {{idempotencyKey}}
+}
+
+body:json {
+  {
+    "organizationId": "{{organizationId}}",
+    "provider": "amazon",
+    "returnUrl": "{{returnUrl}}"
+  }
+}
+
+script:pre-request {
+  bru.setVar("idempotencyKey", `bruno-${Date.now()}`);
+}
+
+script:post-response {
+  bru.setVar("connectionId", res.body.connectionId);
+  bru.setVar("connectUrl", res.body.connectUrl);
+}
+
+tests {
+  test("creates an Amazon connect session", function() {
+    expect(res.status).to.equal(201);
+    expect(res.body.connectionId).to.match(/^conn_/);
+    expect(res.body.connectUrl).to.be.a("string");
+  });
+}

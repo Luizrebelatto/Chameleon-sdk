@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Chameleon Amazon Connections",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}
