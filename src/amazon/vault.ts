@@ -9,19 +9,23 @@ interface EncryptedRecord {
 }
 
 function associatedData(connectionId: string, scope: CredentialScope): Buffer {
+  const scopeData: Record<string, string> = {
+    connectionId,
+    environmentId: scope.environmentId,
+    organizationId: scope.organizationId,
+    provider: scope.provider,
+  };
+  if (scope.authorizationAttemptId) {
+    scopeData.authorizationAttemptId = scope.authorizationAttemptId;
+  }
   return Buffer.from(
-    JSON.stringify({
-      connectionId,
-      environmentId: scope.environmentId,
-      organizationId: scope.organizationId,
-      provider: scope.provider,
-    }),
+    JSON.stringify(scopeData),
     "utf8",
   );
 }
 
 function recordKey(connectionId: string, scope: CredentialScope): string {
-  return `${scope.environmentId}:${scope.organizationId}:${scope.provider}:${connectionId}`;
+  return `${scope.environmentId}:${scope.organizationId}:${scope.provider}:${scope.authorizationAttemptId ?? "persistent"}:${connectionId}`;
 }
 
 /**

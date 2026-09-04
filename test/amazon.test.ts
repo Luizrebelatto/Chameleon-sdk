@@ -7,9 +7,11 @@ import {
   AmazonProvider,
   AmazonProviderError,
   InMemoryConnectionEventSink,
+  StaticFrontendSessionAuthenticator,
   StaticSecretKeyAuthenticator,
   createAmazonHostedApi,
   createChameleonClient,
+  createChameleonFrontendClient,
   type AmazonProviderConfig,
   type Clock,
   type HttpRequest,
@@ -123,7 +125,7 @@ function config(): AmazonProviderConfig {
   };
 }
 
-function buildService() {
+function buildService(options: { requireResourceSelection?: boolean } = {}) {
   const clock = new FixedClock(new Date("2026-09-03T12:00:00.000Z"));
   const transport = new AmazonFakeTransport();
   const vault = new AesGcmCredentialVault(Buffer.alloc(32, 7).toString("base64"));
@@ -135,6 +137,7 @@ function buildService() {
     eventSink: events,
     clock,
     ids: new SequenceIds(),
+    requireResourceSelection: options.requireResourceSelection,
   });
   return { clock, events, provider, service, transport, vault };
 }
@@ -441,4 +444,273 @@ test("hosted API completes Amazon login and redirect callbacks without leaking t
   assert.equal(returnUrl.searchParams.has("access_token"), false);
   assert.match(completed.headers.get("set-cookie") ?? "", /Max-Age=0/);
   assert.equal((await client.connections.get(session.connectionId)).status, "CONNECTED");
+});
+
+test("keeps authorization state separate from a failed synchronization", async () => {
+  const { service } = buildService();
+  const started = await service.beginConnection({
+    environmentId: "env_test",
+    organizationId: "org_123",
+    initiatedByUserId: "user_123",
+    returnUrl: "https://app.example.com/integrations",
+  });
+  const login = await service.handleLoginCallback({
+    browserSessionId: started.browserSessionId,
+    amazonCallbackUri: "https://sellercentral.amazon.com/apps/authorize/confirm/amzn1.sellerapps.app.example",
+    amazonState: "amazon-csrf-state",
+    sellingPartnerId: "A3SELLER123",
+  });
+  await service.completeRedirectCallback({
+    state: new URL(login.confirmationUrl).searchParams.get("state")!,
+    sellingPartnerId: "A3SELLER123",
+    spapiOauthCode: "spapi-code",
+  });
+
+  const updated = service.updateSyncState(started.connection.id, "env_test", "org_123", {
+    status: "FAILED",
+    lastFailure: { code: "ORDERS_IMPORT_FAILED", message: "Orders import failed.", retryable: true },
+  });
+  assert.equal(updated.status, "CONNECTED");
+  assert.equal(updated.authorizationStatus, "CONNECTED");
+  assert.equal(updated.syncState.status, "FAILED");
+  assert.equal(started.attempt.initiatedByUserId, "user_123");
+});
+
+test("holds staged credentials until the seller selects authorized Amazon marketplaces", async () => {
+  const { service, vault } = buildService({ requireResourceSelection: true });
+  const started = await service.beginConnection({
+    environmentId: "env_test",
+    organizationId: "org_123",
+    initiatedByUserId: "user_123",
+    returnUrl: "https://app.example.com/integrations",
+  });
+  const login = await service.handleLoginCallback({
+    browserSessionId: started.browserSessionId,
+    amazonCallbackUri: "https://sellercentral.amazon.com/apps/authorize/confirm/amzn1.sellerapps.app.example",
+    amazonState: "amazon-csrf-state",
+    sellingPartnerId: "A3SELLER123",
+  });
+  const awaitingSelection = await service.completeRedirectCallback({
+    state: new URL(login.confirmationUrl).searchParams.get("state")!,
+    sellingPartnerId: "A3SELLER123",
+    spapiOauthCode: "spapi-code",
+  });
+
+  assert.equal(awaitingSelection.status, "PENDING");
+  assert.equal(service.getAttempt(started.attempt.id, "env_test", "org_123").nextAction, "select_resources");
+  assert.equal(
+    await vault.get(started.connection.id, {
+      environmentId: "env_test",
+      organizationId: "org_123",
+      provider: "amazon",
+    }),
+    undefined,
+  );
+  const connected = await service.selectResources(
+    started.connection.id,
+    "env_test",
+    "org_123",
+    [awaitingSelection.resources[0]!.id],
+  );
+  assert.equal(connected.status, "CONNECTED");
+  assert.deepEqual(connected.resources.filter((resource) => resource.selected).map((resource) => resource.providerResourceId), [
+    "ATVPDKIKX0DER",
+  ]);
+});
+
+test("does not replace a reconnect authorization with a different Amazon seller", async () => {
+  const { service, transport, vault } = buildService();
+  const started = await service.beginConnection({
+    environmentId: "env_test",
+    organizationId: "org_123",
+    returnUrl: "https://app.example.com/integrations",
+  });
+  const login = await service.handleLoginCallback({
+    browserSessionId: started.browserSessionId,
+    amazonCallbackUri: "https://sellercentral.amazon.com/apps/authorize/confirm/amzn1.sellerapps.app.example",
+    amazonState: "amazon-csrf-state",
+    sellingPartnerId: "A3SELLER123",
+  });
+  await service.completeRedirectCallback({
+    state: new URL(login.confirmationUrl).searchParams.get("state")!,
+    sellingPartnerId: "A3SELLER123",
+    spapiOauthCode: "spapi-code",
+  });
+  transport.failRefresh = true;
+  await assert.rejects(() => service.refreshConnection(started.connection.id, "env_test", "org_123"));
+  const reconnect = await service.reconnect(started.connection.id, "env_test", "org_123");
+  const reconnectLogin = await service.handleLoginCallback({
+    browserSessionId: reconnect.browserSessionId,
+    amazonCallbackUri: "https://sellercentral.amazon.com/apps/authorize/confirm/amzn1.sellerapps.app.example",
+    amazonState: "amazon-csrf-state-2",
+    sellingPartnerId: "A-DIFFERENT-SELLER",
+  });
+  await assert.rejects(
+    () => service.completeRedirectCallback({
+      state: new URL(reconnectLogin.confirmationUrl).searchParams.get("state")!,
+      sellingPartnerId: "A-DIFFERENT-SELLER",
+      spapiOauthCode: "spapi-code",
+    }),
+    (error: unknown) => error instanceof AmazonProviderError && error.code === "AMAZON_AUTHORIZATION_DENIED",
+  );
+  assert.equal(
+    (await vault.get(started.connection.id, {
+      environmentId: "env_test",
+      organizationId: "org_123",
+      provider: "amazon",
+    }))?.refreshToken,
+    "refresh-token-secret",
+  );
+});
+
+test("does not associate the same Amazon seller with a second workspace", async () => {
+  const { service } = buildService();
+  const first = await service.beginConnection({
+    environmentId: "env_test",
+    organizationId: "org_123",
+    returnUrl: "https://app.example.com/integrations",
+  });
+  const firstLogin = await service.handleLoginCallback({
+    browserSessionId: first.browserSessionId,
+    amazonCallbackUri: "https://sellercentral.amazon.com/apps/authorize/confirm/amzn1.sellerapps.app.example",
+    amazonState: "amazon-csrf-state",
+    sellingPartnerId: "A3SELLER123",
+  });
+  await service.completeRedirectCallback({
+    state: new URL(firstLogin.confirmationUrl).searchParams.get("state")!,
+    sellingPartnerId: "A3SELLER123",
+    spapiOauthCode: "spapi-code",
+  });
+
+  const second = await service.beginConnection({
+    environmentId: "env_test",
+    organizationId: "org_other",
+    returnUrl: "https://app.example.com/integrations",
+  });
+  const secondLogin = await service.handleLoginCallback({
+    browserSessionId: second.browserSessionId,
+    amazonCallbackUri: "https://sellercentral.amazon.com/apps/authorize/confirm/amzn1.sellerapps.app.example",
+    amazonState: "amazon-csrf-state-2",
+    sellingPartnerId: "A3SELLER123",
+  });
+  await assert.rejects(
+    () => service.completeRedirectCallback({
+      state: new URL(secondLogin.confirmationUrl).searchParams.get("state")!,
+      sellingPartnerId: "A3SELLER123",
+      spapiOauthCode: "spapi-code",
+    }),
+    (error: unknown) => error instanceof AmazonProviderError && error.code === "AMAZON_AUTHORIZATION_DENIED",
+  );
+  assert.equal(service.getConnection(second.connection.id, "env_test", "org_other").status, "FAILED");
+});
+
+test("frontend SDK creates and opens a session with a Publishable Key, authenticated user, and workspace permission", async () => {
+  const { service } = buildService();
+  const workspaceAuthorizer = {
+    async assertAuthorized(input: { organizationId: string; actor: { userId: string } }) {
+      if (input.organizationId !== "org_123" || input.actor.userId !== "user_123") {
+        throw new AmazonProviderError("AMAZON_AUTHORIZATION_DENIED", "Workspace access is denied.");
+      }
+    },
+  };
+  const handler = createAmazonHostedApi({
+    connectionService: service,
+    authenticateSecretKey: new StaticSecretKeyAuthenticator(new Map([[
+      "sk_test_secret",
+      { environmentId: "env_test", actor: { userId: "user_123" } },
+    ]])),
+    authenticateFrontendSession: new StaticFrontendSessionAuthenticator(new Map([[
+      "pk_test_public:session_123",
+      { environmentId: "env_test", actor: { userId: "user_123" } },
+    ]])),
+    workspaceAuthorizer,
+    connectOrigin: "https://connect.chameleon.test",
+    isAllowedReturnUrl: ({ returnUrl }) => returnUrl === "https://app.example.com/integrations",
+  });
+  const requests: Request[] = [];
+  const client = createChameleonFrontendClient({
+    publishableKey: "pk_test_public",
+    sessionToken: "session_123",
+    baseUrl: "https://api.chameleon.test/v1",
+    fetch: async (input, init) => {
+      const request = new Request(input, init);
+      requests.push(request.clone());
+      return handler(request);
+    },
+  });
+  let openedUrl = "";
+  const session = await client.connect(
+    {
+      organizationId: "org_123",
+      provider: "amazon",
+      returnUrl: "https://app.example.com/integrations",
+    },
+    (url) => {
+      openedUrl = url;
+    },
+  );
+
+  assert.match(openedUrl, /^https:\/\/connect\.chameleon\.test\/connect\/amazon\?/);
+  assert.match(session.attemptId, /^attempt_/);
+  assert.equal((await client.connections.get(session.connectionId)).status, "PENDING");
+  assert.equal((await client.connectionAttempts.get(session.attemptId)).nextAction, "redirect");
+  assert.equal(requests[0]?.url, "https://api.chameleon.test/v1/frontend/connect_sessions");
+  assert.equal(requests[0]?.headers.get("authorization"), "Bearer pk_test_public");
+  assert.equal(requests[0]?.headers.get("authorization")?.includes("sk_"), false);
+});
+
+test("frontend connection creation is denied without workspace permission", async () => {
+  const { service } = buildService();
+  const handler = createAmazonHostedApi({
+    connectionService: service,
+    authenticateSecretKey: new StaticSecretKeyAuthenticator(new Map()),
+    authenticateFrontendSession: new StaticFrontendSessionAuthenticator(new Map([[
+      "pk_test_public:session_123",
+      { environmentId: "env_test", actor: { userId: "user_without_access" } },
+    ]])),
+    workspaceAuthorizer: {
+      async assertAuthorized() {
+        throw new AmazonProviderError("AMAZON_AUTHORIZATION_DENIED", "Workspace access is denied.");
+      },
+    },
+    connectOrigin: "https://connect.chameleon.test",
+    isAllowedReturnUrl: () => true,
+  });
+  const response = await handler(new Request("https://api.chameleon.test/v1/frontend/connect_sessions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer pk_test_public",
+      "x-chameleon-session": "session_123",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      organizationId: "org_123",
+      provider: "amazon",
+      returnUrl: "https://app.example.com/integrations",
+    }),
+  }));
+  assert.equal(response.status, 403);
+  assert.equal((await response.json() as { code: string }).code, "AMAZON_AUTHORIZATION_DENIED");
+});
+
+test("frontend API answers CORS preflight only for an allowed product origin", async () => {
+  const { service } = buildService();
+  const handler = createAmazonHostedApi({
+    connectionService: service,
+    authenticateSecretKey: new StaticSecretKeyAuthenticator(new Map()),
+    connectOrigin: "https://connect.chameleon.test",
+    isAllowedFrontendOrigin: (origin) => origin === "https://app.example.com",
+    isAllowedReturnUrl: () => true,
+  });
+  const allowed = await handler(new Request("https://api.chameleon.test/v1/frontend/connect_sessions", {
+    method: "OPTIONS",
+    headers: { origin: "https://app.example.com" },
+  }));
+  const denied = await handler(new Request("https://api.chameleon.test/v1/frontend/connect_sessions", {
+    method: "OPTIONS",
+    headers: { origin: "https://attacker.example" },
+  }));
+  assert.equal(allowed.status, 204);
+  assert.equal(allowed.headers.get("access-control-allow-origin"), "https://app.example.com");
+  assert.equal(denied.status, 403);
 });

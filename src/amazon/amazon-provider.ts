@@ -11,6 +11,7 @@ import type {
   PublicMarketplaceAccount,
   RedirectCallbackInput,
 } from "./types.ts";
+import type { MarketplaceProviderDescriptor } from "../marketplace/types.ts";
 
 export const AMAZON_US_MARKETPLACE_ID = "ATVPDKIKX0DER";
 export const AMAZON_NA_SP_API_ENDPOINT = "https://sellingpartnerapi-na.amazon.com";
@@ -36,6 +37,20 @@ export interface AmazonRedirectCallback {
 
 export class AmazonProvider {
   public readonly id = "amazon" as const;
+  public readonly descriptor: MarketplaceProviderDescriptor = {
+    id: "amazon",
+    availability: "enabled",
+    capabilities: {
+      authorization: ["oauth"],
+      supportsPkce: false,
+      supportsRefresh: true,
+      supportsRemoteRevocation: false,
+      supportsResourceSelection: true,
+      supportsAppStoreInitiatedInstall: false,
+      requiresAdditionalResourceIdentifier: false,
+    },
+    documentationUrl: "https://developer-docs.amazon.com/sp-api/docs/website-authorization-workflow",
+  };
   private readonly sellerCentralBaseUrl: string;
   private readonly spApiBaseUrl: string;
   private readonly awsRegion: string;

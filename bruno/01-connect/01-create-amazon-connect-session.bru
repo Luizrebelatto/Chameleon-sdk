@@ -29,6 +29,7 @@ script:pre-request {
 }
 
 script:post-response {
+  bru.setVar("attemptId", res.body.attemptId);
   bru.setVar("connectionId", res.body.connectionId);
   bru.setVar("connectUrl", res.body.connectUrl);
 }

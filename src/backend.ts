@@ -1,4 +1,5 @@
 import type { PublicConnection } from "./amazon/types.ts";
+import type { ConnectionAttempt, ConnectionAttemptStatus, ConnectionNextAction } from "./marketplace/types.ts";
 
 export interface ChameleonBackendClientOptions {
   secretKey: string;
@@ -15,10 +16,13 @@ export interface CreateConnectSessionInput {
 
 export interface ConnectSession {
   id: string;
+  attemptId: string;
   connectionId: string;
   connectUrl: string;
   connectSessionToken: string;
   expiresAt: string;
+  state: ConnectionAttemptStatus;
+  nextAction: ConnectionNextAction;
 }
 
 export class ChameleonApiError extends Error {
@@ -53,6 +57,14 @@ export class ChameleonBackendClient {
       this.disconnectConnection(connectionId, idempotencyKey),
     reconnect: (connectionId: string, idempotencyKey?: string): Promise<ConnectSession> =>
       this.reconnectConnection(connectionId, idempotencyKey),
+    selectResources: (connectionId: string, resourceIds: readonly string[], idempotencyKey?: string): Promise<PublicConnection> =>
+      this.selectConnectionResources(connectionId, resourceIds, idempotencyKey),
+  };
+
+  public readonly connectionAttempts = {
+    get: (attemptId: string): Promise<ConnectionAttempt> => this.getConnectionAttempt(attemptId),
+    cancel: (attemptId: string, idempotencyKey?: string): Promise<ConnectionAttempt> =>
+      this.cancelConnectionAttempt(attemptId, idempotencyKey),
   };
 
   public constructor(private readonly options: ChameleonBackendClientOptions) {
@@ -77,6 +89,32 @@ export class ChameleonBackendClient {
 
   private async reconnectConnection(connectionId: string, idempotencyKey?: string): Promise<ConnectSession> {
     return this.request<ConnectSession>("POST", `/connections/${encodeURIComponent(connectionId)}/reconnect`, undefined, idempotencyKey);
+  }
+
+  private async selectConnectionResources(
+    connectionId: string,
+    resourceIds: readonly string[],
+    idempotencyKey?: string,
+  ): Promise<PublicConnection> {
+    return this.request<PublicConnection>(
+      "POST",
+      `/connections/${encodeURIComponent(connectionId)}/resources`,
+      { resourceIds },
+      idempotencyKey,
+    );
+  }
+
+  private async getConnectionAttempt(attemptId: string): Promise<ConnectionAttempt> {
+    return this.request<ConnectionAttempt>("GET", `/connection_attempts/${encodeURIComponent(attemptId)}`);
+  }
+
+  private async cancelConnectionAttempt(attemptId: string, idempotencyKey?: string): Promise<ConnectionAttempt> {
+    return this.request<ConnectionAttempt>(
+      "POST",
+      `/connection_attempts/${encodeURIComponent(attemptId)}/cancel`,
+      undefined,
+      idempotencyKey,
+    );
   }
 
   private async request<T>(

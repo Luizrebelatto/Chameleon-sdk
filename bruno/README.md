@@ -12,7 +12,7 @@ Coleção Bruno para testar a API hospedada do Chameleon para Amazon SP-API.
    - `returnUrl`: URL previamente permitida pelo `isAllowedReturnUrl`.
 3. Execute as requests na sequência mostrada pelos números.
 
-`01-create-amazon-connect-session` salva `connectionId` e `connectUrl` como variáveis de runtime. As requests seguintes usam automaticamente o mesmo `connectionId`.
+`01-create-amazon-connect-session` salva `attemptId`, `connectionId` e `connectUrl` como variáveis de runtime. As requests seguintes usam automaticamente os mesmos IDs.
 
 ## Hosted Connect e Amazon
 
@@ -23,10 +23,11 @@ O fluxo de callback não é automatizado pela coleção: ele exige uma aplicaç�
 ## Sequência segura para smoke test
 
 1. Create Amazon Connect Session
-2. Get Pending Connection
-3. MANUAL - Open Hosted Connect (opcional; não inclua no Collection Runner)
-4. Disconnect Connection
-5. Reconnect Connection
-6. Get Reconnected Connection
+2. Get Connection Attempt
+3. Get Pending Connection
+4. MANUAL - Open Hosted Connect (opcional; não inclua no Collection Runner)
+5. Disconnect Connection
+6. Reconnect Connection
+7. Get Reconnected Connection
 
 As assertions também confirmam que as respostas de conexão não contêm tokens Amazon.

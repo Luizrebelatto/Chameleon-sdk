@@ -1,11 +1,16 @@
+import type {
+  ConnectionAttempt,
+  ConnectionIntent,
+  MarketplaceAuthorizationStatus,
+  MarketplacePermission,
+  MarketplaceResource,
+  SyncState,
+} from "../marketplace/types.ts";
+
 export type AmazonApplicationVersion = "draft" | "production";
 
-export type ConnectionStatus =
-  | "PENDING"
-  | "CONNECTED"
-  | "REAUTHORIZATION_REQUIRED"
-  | "DISCONNECTED"
-  | "FAILED";
+/** @deprecated Use MarketplaceAuthorizationStatus in new shared code. */
+export type ConnectionStatus = MarketplaceAuthorizationStatus;
 
 export interface AwsCredentials {
   accessKeyId: string;
@@ -31,6 +36,9 @@ export interface AmazonConnectionInput {
   environmentId: string;
   organizationId: string;
   returnUrl: string;
+  /** Bound by the Chameleon server from an authenticated user/session, never a callback parameter. */
+  initiatedByUserId?: string | undefined;
+  intent?: ConnectionIntent | undefined;
 }
 
 export interface PublicMarketplaceAccount {
@@ -49,13 +57,19 @@ export interface PublicConnection {
   organizationId: string;
   provider: "amazon";
   status: ConnectionStatus;
+  /** Mirrors the authorization lifecycle; sync failures never change this field. */
+  authorizationStatus: ConnectionStatus;
+  syncState: SyncState;
   account?: PublicMarketplaceAccount;
+  resources: MarketplaceResource[];
+  permissions: MarketplacePermission[];
   createdAt: string;
   updatedAt: string;
 }
 
 export interface BeginConnectionResult {
   connection: PublicConnection;
+  attempt: ConnectionAttempt;
   authorizationUrl: string;
   /**
    * Short-lived Connect Session capability. The customer backend may pass this
@@ -148,6 +162,8 @@ export interface CredentialScope {
   environmentId: string;
   organizationId: string;
   provider: "amazon";
+  /** A temporary, encrypted credential set for a reconnect attempt. */
+  authorizationAttemptId?: string | undefined;
 }
 
 export interface ConnectionEvent {
