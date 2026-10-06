@@ -1,31 +1,31 @@
-# Amazon Connect — contrato Chameleon
+# Amazon Connect — Chameleon contract
 
-## Fluxo preferido de interface
+## Preferred UI flow
 
-O browser usa `createChameleonFrontendClient` com Publishable Key e prova de sessão Chameleon. A chamada `connect()` cria uma `ConnectionAttempt` e redireciona para o Hosted Connect. A `Secret Key`, LWA, SP-API, AWS SigV4 e callbacks ficam fora da aplicação cliente.
+The browser uses `createChameleonFrontendClient` with a Publishable Key and a Chameleon session proof. Calling `connect()` creates a `ConnectionAttempt` and redirects to Hosted Connect. The `Secret Key`, LWA, SP-API, AWS SigV4, and callbacks stay out of the client application.
 
-O Frontend API só aceita a ação se o autenticador de sessão identificar o usuário e `WorkspaceAuthorizer` conceder `connection:create` para o workspace. `organizationId` recebido do browser não é suficiente para definir propriedade.
+The Frontend API only accepts the action if the session authenticator identifies the user and `WorkspaceAuthorizer` grants `connection:create` for the workspace. An `organizationId` received from the browser is not enough to establish ownership.
 
-## Estados públicos
+## Public states
 
-- Tentativa: `awaiting_authorization` → `processing` → `completed`, ou `awaiting_selection`, `failed`, `cancelled`/`expired`.
-- Autorização persistente: `PENDING`, `CONNECTED`, `REAUTHORIZATION_REQUIRED`, `DISCONNECTED` ou `FAILED`.
-- Sincronização: `NOT_STARTED`, `QUEUED`, `SYNCING`, `HEALTHY`, `DEGRADED`, `FAILED` ou `DISABLED`.
+- Attempt: `awaiting_authorization` → `processing` → `completed`, or `awaiting_selection`, `failed`, `cancelled`/`expired`.
+- Persistent authorization: `PENDING`, `CONNECTED`, `REAUTHORIZATION_REQUIRED`, `DISCONNECTED`, or `FAILED`.
+- Sync: `NOT_STARTED`, `QUEUED`, `SYNCING`, `HEALTHY`, `DEGRADED`, `FAILED`, or `DISABLED`.
 
-Uma falha de importação muda `syncState`, não `authorizationStatus`. O logout da sessão Chameleon também não desconecta o seller.
+An import failure changes `syncState`, not `authorizationStatus`. Logging out of the Chameleon session does not disconnect the seller either.
 
-## Recursos e reconexão
+## Resources and reconnection
 
-Amazon descobre marketplaces ativos por `GET /sellers/v1/marketplaceParticipations`. Em configurações com `requireResourceSelection`, as credenciais ficam criptografadas em um escopo temporário da tentativa até a interface chamar `POST /v1/connections/:id/resources` com os IDs de recursos escolhidos.
+Amazon discovers active marketplaces via `GET /sellers/v1/marketplaceParticipations`. In configurations with `requireResourceSelection`, credentials stay encrypted in a temporary attempt scope until the UI calls `POST /v1/connections/:id/resources` with the chosen resource IDs.
 
-Em reconnect, o seller retornado precisa coincidir com o `providerAccountId` conhecido antes de credenciais novas substituírem as atuais. Callbacks de tentativa antiga ou de conexão desconectada falham por correlação/estado e não reativam a integração.
+On reconnect, the returned seller must match the known `providerAccountId` before new credentials replace the current ones. Callbacks from an old attempt or a disconnected connection fail on correlation/state checks and do not reactivate the integration.
 
-## Dados devolvidos à interface
+## Data returned to the UI
 
-O retorno seguro contém `connection_id`, `connection_status` e `attempt_id`. Consultas de conexão podem conter conta normalizada, recursos, permissões conhecidas e sync. Elas nunca incluem `spapi_oauth_code`, LWA access token, refresh token, credenciais AWS ou segredo de aplicação Amazon.
+The safe return contains `connection_id`, `connection_status`, and `attempt_id`. Connection queries may include the normalized account, resources, known permissions, and sync. They never include `spapi_oauth_code`, the LWA access token, the refresh token, AWS credentials, or the Amazon application secret.
 
-## Produção
+## Production
 
-Substitua os componentes em memória por banco transacional, KMS/envelope encryption, store single-use para tentativas/callbacks, locks distribuídos para refresh, outbox e workers. A primeira sincronização deve ser enfileirada somente depois que a conexão for ativada; ela não deve rodar no callback HTTP.
+Replace the in-memory components with a transactional database, KMS/envelope encryption, a single-use store for attempts/callbacks, distributed locks for refresh, an outbox, and workers. The first sync must be enqueued only after the connection is activated; it must not run inside the HTTP callback.
 
-Detalhes oficiais do fluxo Amazon estão em [amazon-sp-api.md](./amazon-sp-api.md). A visão multi-provider está em [marketplace-architecture.md](./marketplace-architecture.md).
+Official details of the Amazon flow are in [amazon-sp-api.md](./amazon-sp-api.md). The multi-provider overview is in [marketplace-architecture.md](./marketplace-architecture.md).

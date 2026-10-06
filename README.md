@@ -1,22 +1,22 @@
 # Chameleon Marketplace Connections
 
-Infraestrutura hospedada, no estilo Clerk, para conectar sellers de marketplace sem expor tokens, callbacks, credenciais AWS ou segredos das aplicações dos providers. Amazon SP-API US é o único adapter operacional desta referência.
+Hosted, Clerk-style infrastructure for connecting marketplace sellers without exposing tokens, callbacks, AWS credentials, or provider application secrets. Amazon SP-API US is the only operational adapter in this reference.
 
-## O que mudou
+## What changed
 
-- `ConnectionAttempt` recuperável e vinculado a environment, workspace, usuário e intenção.
-- autorização da conta externa, permissões/recursos e `SyncState` agora são estados separados.
-- Frontend API com Publishable Key + sessão Chameleon + RBAC de workspace.
-- cliente browser-safe com `connect()` para a interface abrir o Hosted Connect sem criar uma rota `POST` própria.
-- seleção opcional de marketplaces Amazon antes de ativar a conexão.
-- credenciais de callbacks/reconnect são staged e criptografadas até validar seller e recursos.
-- catálogo explícito para Amazon, eBay, TikTok Shop, Temu e Walmart; apenas Amazon está habilitado.
+- Recoverable `ConnectionAttempt` bound to environment, workspace, user, and intent.
+- External account authorization, permissions/resources, and `SyncState` are now separate states.
+- Frontend API with Publishable Key + Chameleon session + workspace RBAC.
+- Browser-safe client with `connect()` so the UI can open Hosted Connect without creating its own `POST` route.
+- Optional Amazon marketplace selection before activating the connection.
+- Callback/reconnect credentials are staged and encrypted until the seller and resources are validated.
+- Explicit catalog for Amazon, eBay, TikTok Shop, Temu, and Walmart; only Amazon is enabled.
 
-Consulte a [arquitetura e plano de migração](./docs/marketplace-architecture.md) para contratos, limitações e fontes oficiais.
+See the [architecture and migration plan](./docs/marketplace-architecture.md) for contracts, limitations, and official sources.
 
-## Uso na interface
+## Frontend usage
 
-> Este repositório ainda é privado e não publica pacotes npm. O cliente abaixo é a API que deverá compor `@chameleon/frontend` ou `@chameleon/react`; use o alias/artefato interno equivalente até a publicação.
+> This repository is still private and does not publish npm packages. The client below is the API that will make up `@chameleon/frontend` or `@chameleon/react`; use the equivalent internal alias/artifact until it is published.
 
 ```tsx
 "use client";
@@ -27,7 +27,7 @@ declare function getChameleonSessionToken(): Promise<string>;
 
 const chameleon = createChameleonFrontendClient({
   publishableKey: process.env.NEXT_PUBLIC_CHAMELEON_PUBLISHABLE_KEY!,
-  // Prova de sessão do próprio Chameleon, obtida pelo seu adaptador de auth.
+  // Chameleon's own session proof, obtained through your auth adapter.
   sessionToken: getChameleonSessionToken,
 });
 
@@ -37,28 +37,28 @@ export function ConnectAmazonButton() {
       onClick={() =>
         chameleon.connect({
           provider: "amazon",
-          organizationId: "org_da_empresa_logada",
+          organizationId: "org_of_signed_in_company",
           returnUrl: "https://app.example.com/integrations",
         })
       }
     >
-      Conectar Amazon
+      Connect Amazon
     </button>
   );
 }
 ```
 
-`connect()` cria a tentativa e navega ao Hosted Connect. A interface não faz troca de código, refresh, assinatura SP-API ou armazenamento de token. O servidor Chameleon deve resolver o usuário pela sessão, validar sua permissão no workspace e liberar a origem do browser por CORS.
+`connect()` creates the attempt and navigates to Hosted Connect. The UI never performs code exchange, token refresh, SP-API signing, or token storage. The Chameleon server must resolve the user from the session, validate their permission in the workspace, and allow the browser origin via CORS.
 
-Após consentimento, a `returnUrl` recebe somente dados seguros:
+After consent, the `returnUrl` receives only safe data:
 
 ```text
 https://app.example.com/integrations?connection_id=conn_123&connection_status=connected&attempt_id=attempt_123
 ```
 
-Para acompanhar uma seleção pendente, consulte a tentativa e a conexão no backend. A conexão devolve `authorizationStatus`, `resources`, `permissions` e `syncState`; ela nunca devolve credenciais Amazon.
+To track a pending selection, query the attempt and the connection from the backend. The connection returns `authorizationStatus`, `resources`, `permissions`, and `syncState`; it never returns Amazon credentials.
 
-## Uso pelo backend (compatibilidade)
+## Backend usage (compatibility)
 
 ```ts
 import { createChameleonClient } from "@chameleon/backend";
@@ -68,7 +68,7 @@ const chameleon = createChameleonClient({
 });
 
 const session = await chameleon.connectSessions.create({
-  organizationId: "org_da_empresa_logada",
+  organizationId: "org_of_signed_in_company",
   provider: "amazon",
   returnUrl: "https://app.example.com/integrations",
   idempotencyKey: crypto.randomUUID(),
@@ -84,11 +84,11 @@ if (connection.resources.some((resource) => !resource.selected)) {
 }
 ```
 
-`sk_` nunca pertence ao browser. A Backend API é útil para jobs administrativos, leitura de conexão e produtos que preferirem criar a sessão no próprio backend.
+`sk_` never belongs in the browser. The Backend API is useful for administrative jobs, reading connections, and products that prefer to create the session on their own backend.
 
-## Configuração interna do Chameleon
+## Internal Chameleon configuration
 
-O handler HTTP é framework-neutral (`Request`/`Response`). Integre autenticação real de Secret Key, sessão Chameleon, RBAC de workspace e allowlists de retorno/origem:
+The HTTP handler is framework-neutral (`Request`/`Response`). Wire in real Secret Key authentication, Chameleon sessions, workspace RBAC, and return/origin allowlists:
 
 ```ts
 const api = createAmazonHostedApi({
@@ -102,32 +102,32 @@ const api = createAmazonHostedApi({
 });
 ```
 
-Rotas disponíveis:
+Available routes:
 
-- `POST /v1/frontend/connect_sessions` — browser: `pk_` + sessão Chameleon.
-- `GET /v1/frontend/connections/:id`, `POST /resources`, `/reconnect` e `/disconnect` — interface autenticada.
-- `GET /v1/frontend/connection_attempts/:id` e `POST /cancel` — estado recuperável na interface.
+- `POST /v1/frontend/connect_sessions` — browser: `pk_` + Chameleon session.
+- `GET /v1/frontend/connections/:id`, `POST /resources`, `/reconnect`, and `/disconnect` — authenticated UI.
+- `GET /v1/frontend/connection_attempts/:id` and `POST /cancel` — recoverable state in the UI.
 - `POST /v1/connect_sessions` — backend: `sk_`.
-- `GET /v1/marketplaces` — catálogo de providers/capacidades para o backend.
-- `GET /v1/connection_attempts/:id` e `POST /v1/connection_attempts/:id/cancel`.
-- `GET /v1/connections/:id`, `POST /v1/connections/:id/resources`, `/reconnect` e `/disconnect`.
-- `GET /connect/amazon` e callbacks internos em `/v1/providers/amazon/*`.
+- `GET /v1/marketplaces` — provider/capability catalog for the backend.
+- `GET /v1/connection_attempts/:id` and `POST /v1/connection_attempts/:id/cancel`.
+- `GET /v1/connections/:id`, `POST /v1/connections/:id/resources`, `/reconnect`, and `/disconnect`.
+- `GET /connect/amazon` and internal callbacks under `/v1/providers/amazon/*`.
 
-As configurações Amazon e as chaves de criptografia permanecem exclusivamente no secret manager da plataforma. Consulte [.env.example](./.env.example) e [docs/amazon-sp-api.md](./docs/amazon-sp-api.md).
+Amazon settings and encryption keys live exclusively in the platform's secret manager. See [.env.example](./.env.example) and [docs/amazon-sp-api.md](./docs/amazon-sp-api.md).
 
 ## Marketplace status
 
-| Provider | Situação |
+| Provider | Status |
 | --- | --- |
-| Amazon US | Implementado com mocks: hosted authorization, LWA, SigV4, descoberta de marketplaces, refresh, reconnect, seleção e disconnect |
-| eBay | Documentado no registry; adapter não configurado |
-| TikTok Shop | Documentado no registry; adapter não configurado |
-| Temu | Documentado no registry; adapter não configurado |
-| Walmart | Documentado no registry; adapter não configurado |
+| Amazon US | Implemented with mocks: hosted authorization, LWA, SigV4, marketplace discovery, refresh, reconnect, selection, and disconnect |
+| eBay | Documented in the registry; adapter not configured |
+| TikTok Shop | Documented in the registry; adapter not configured |
+| Temu | Documented in the registry; adapter not configured |
+| Walmart | Documented in the registry; adapter not configured |
 
-## Desenvolvimento e testes
+## Development and testing
 
-Requer Node.js 22.6 ou superior.
+Requires Node.js 22.6 or later.
 
 ```bash
 npm install
@@ -136,4 +136,4 @@ npm test
 npm run check
 ```
 
-Os testes são simulados, sem rede ou credenciais reais. A coleção [Bruno](./bruno/README.md) cobre o contrato de Backend API. Validação Amazon real ainda requer aplicação SP-API pública aprovada, callbacks HTTPS registrados, roles adequadas e seller US de teste.
+Tests are mocked, with no network access or real credentials. The [Bruno](./bruno/README.md) collection covers the Backend API contract. Real Amazon validation still requires an approved public SP-API application, registered HTTPS callbacks, appropriate roles, and a US test seller.

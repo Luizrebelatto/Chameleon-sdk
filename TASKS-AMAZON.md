@@ -1,10 +1,10 @@
-# Backlog — Amazon US SP-API no Chameleon
+# Backlog — Amazon US SP-API in Chameleon
 
-Este backlog implementa Amazon como provider interno da plataforma hosted-first do Chameleon. O Developer Experience segue o estilo Clerk: o cliente instala SDKs e usa chaves Chameleon; credenciais Amazon, callbacks, tokens e refresh permanecem na infraestrutura Chameleon.
+This backlog implements Amazon as an internal provider of Chameleon's hosted-first platform. The Developer Experience follows the Clerk style: the customer installs SDKs and uses Chameleon keys; Amazon credentials, callbacks, tokens, and refresh stay in Chameleon's infrastructure.
 
-## Experiência pública esperada
+## Expected public experience
 
-### Backend do cliente
+### Customer backend
 
 ```typescript
 import { createChameleonClient } from "@chameleon/backend";
@@ -20,13 +20,13 @@ const session = await chameleon.connectSessions.create({
 });
 ```
 
-### Frontend do cliente
+### Customer frontend
 
 ```tsx
 <ConnectMarketplaceButton connectSessionToken={session.connectSessionToken} />
 ```
 
-### Fluxo interno
+### Internal flow
 
 ```text
 Customer Backend SDK
@@ -52,562 +52,562 @@ Chameleon Hosted Callback
         └── emits connection.connected
 ```
 
-## Regras de arquitetura
+## Architecture rules
 
-- O cliente utiliza somente `pk_test/pk_live` e `sk_test/sk_live` do Chameleon.
-- Amazon application credentials e LWA secrets nunca entram no SDK público.
-- O callback registrado na Amazon pertence a um domínio Chameleon.
-- Authorization codes e LWA tokens nunca são enviados à return URL do cliente.
-- `AmazonProvider` roda apenas em serviços internos.
-- Particularidades de LWA, SP-API, roles, regions, marketplace IDs e RDT não entram no domínio genérico.
-- Test e live usam aplicações/configurações/credentials isoladas.
-- BYOC de aplicação Amazon fica fora do MVP.
+- The customer only uses Chameleon's `pk_test/pk_live` and `sk_test/sk_live`.
+- Amazon application credentials and LWA secrets never enter the public SDK.
+- The callback registered with Amazon belongs to a Chameleon domain.
+- Authorization codes and LWA tokens are never sent to the customer's return URL.
+- `AmazonProvider` runs only in internal services.
+- LWA, SP-API, role, region, marketplace ID, and RDT specifics do not enter the generic domain.
+- Test and live use isolated applications/configurations/credentials.
+- BYOC (bring your own Amazon application) is out of the MVP.
 
-## Pré-requisitos da plataforma
+## Platform prerequisites
 
-- Backend API autenticada por Secret Key.
-- Frontend API resolvida por Publishable Key.
-- Connect Sessions efêmeras.
-- Hosted Connect e callback hospedado.
-- Organization, Connection e MarketplaceAccount persistidos.
-- Credential Vault com KMS/envelope encryption.
-- OAuth transaction store single-use.
-- Distributed lock, queue, retry e observabilidade.
-- Provider Registry e contract tests.
-- Etsy e eBay já validaram a abstração.
+- Backend API authenticated by Secret Key.
+- Frontend API resolved by Publishable Key.
+- Ephemeral Connect Sessions.
+- Hosted Connect and hosted callback.
+- Persisted Organization, Connection, and MarketplaceAccount.
+- Credential Vault with KMS/envelope encryption.
+- Single-use OAuth transaction store.
+- Distributed lock, queue, retry, and observability.
+- Provider Registry and contract tests.
+- Etsy and eBay have already validated the abstraction.
 
-## Convenções
+## Conventions
 
-- Status: `[ ]` pendente, `[-]` bloqueado externamente, `[x]` concluído.
-- `P0`: bloqueia Amazon Connect; `P1`: necessária para produção; `P2`: capability posterior.
-- `S`: até 1 dia; `M`: 1–3 dias; `L`: precisa de refinamento.
+- Status: `[ ]` pending, `[-]` externally blocked, `[x]` done.
+- `P0`: blocks Amazon Connect; `P1`: required for production; `P2`: later capability.
+- `S`: up to 1 day; `M`: 1–3 days; `L`: needs refinement.
 
-## Implementação atual
+## Current implementation
 
-Implementado e validado localmente com transportes mockados: `AMZ-001`, `AMZ-003`, `AMZ-011` a `AMZ-013`, `AMZ-020` a `AMZ-021`, `AMZ-023`, `AMZ-030` a `AMZ-032`, `AMZ-040` a `AMZ-042`, `AMZ-050`, `AMZ-052`, `AMZ-070`, `AMZ-080`, `AMZ-082` e `AMZ-083`.
+Implemented and validated locally with mocked transports: `AMZ-001`, `AMZ-003`, `AMZ-011` to `AMZ-013`, `AMZ-020` to `AMZ-021`, `AMZ-023`, `AMZ-030` to `AMZ-032`, `AMZ-040` to `AMZ-042`, `AMZ-050`, `AMZ-052`, `AMZ-070`, `AMZ-080`, `AMZ-082`, and `AMZ-083`.
 
-O checkpoint inclui provider, Hosted Connect handler, callback em duas etapas, LWA, vault AES-256-GCM, assinatura AWS SigV4, Sellers API, backend SDK e testes. Os itens restantes exigem infraestrutura de produção (KMS/DB/outbox/locks/worker/UI/webhook), aprovação Amazon, ou capacidades ainda fora do MVP.
-
----
-
-## Epic A — Pesquisa, aprovação e arquitetura Amazon
-
-### [x] AMZ-001 — Pesquisar seller authorization e LWA vigentes
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** nenhuma
-
-**Entrega:** documento versionado do fluxo oficial para uma aplicação pública conectar sellers Amazon US.
-
-**Critérios de aceite:**
-
-- Usa somente documentação oficial atual, com links e data de consulta.
-- Registra endpoints, parâmetros, callback, tokens, expirações e refresh.
-- Diferencia aplicação pública, privada, draft/test e produção quando aplicável.
-- Identifica etapas bloqueadas por aprovação sem bloquear mocks e implementação interna.
-
-### [ ] AMZ-002 — Documentar processo de aplicação e aprovação SP-API
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-001
-
-**Entrega:** checklist operacional para a aplicação Chameleon na Amazon.
-
-**Critérios de aceite:**
-
-- Lista cadastro, perfil, use case, roles, URLs e políticas exigidas oficialmente.
-- Separa ações de engenharia, segurança, jurídico/compliance e operação.
-- Não orienta clientes Chameleon a criar aplicações Amazon no MVP.
-- Marca dependências externas e lead times sem inventar prazos.
-
-### [x] AMZ-003 — Mapear regiões e marketplace IDs
-
-**Prioridade/Tamanho:** P0 / S  
-**Dependências:** AMZ-001
-
-**Entrega:** configuração interna tipada para Amazon US.
-
-**Critérios de aceite:**
-
-- Região de endpoint e marketplace ID são conceitos distintos.
-- Configuração US fica centralizada e validada.
-- Adicionar Canadá/México futuramente não exige alterar APIs públicas.
-
-### [ ] AMZ-004 — Mapear roles e permissões mínimas
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-001, AMZ-002
-
-**Entrega:** matriz de capability → role/permissão.
-
-**Critérios de aceite:**
-
-- Conexão e seller identity solicitam somente o mínimo necessário.
-- Orders, finance e dados restritos não entram no consentimento do MVP.
-- Falta de role tem erro distinto de credencial inválida.
-
-### [ ] AMZ-005 — Atualizar threat model para Amazon
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-001 a AMZ-004
-
-**Entrega:** ameaças e controles para application secret, callback, refresh token LWA, seller ID e RDT.
-
-**Critérios de aceite:**
-
-- Cobre CSRF/replay, confused deputy, tenant mix-up e callback manipulation.
-- Define acesso mínimo ao plaintext e redaction obrigatória.
-- Revisa return URLs para impedir authorization code leakage/open redirect.
+The checkpoint includes the provider, Hosted Connect handler, two-step callback, LWA, AES-256-GCM vault, AWS SigV4 signing, Sellers API, backend SDK, and tests. The remaining items require production infrastructure (KMS/DB/outbox/locks/worker/UI/webhook), Amazon approval, or capabilities still outside the MVP.
 
 ---
 
-## Epic B — Configuração interna e provider
+## Epic A — Amazon research, approval, and architecture
 
-### [ ] AMZ-010 — Armazenar configuração da aplicação Amazon no vault
+### [x] AMZ-001 — Research current seller authorization and LWA
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-002, credential vault pronto
+**Priority/Size:** P0 / M  
+**Dependencies:** none
 
-**Entrega:** application ID, LWA client credentials e demais secrets por environment.
+**Deliverable:** versioned document of the official flow for a public application to connect Amazon US sellers.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Test/staging/live são isolados.
-- Plaintext só é acessível ao runtime Amazon autorizado.
-- Alterações geram audit event.
-- Nenhuma configuração Amazon é retornada pelo dashboard/API/SDK público.
+- Uses only current official documentation, with links and access dates.
+- Records endpoints, parameters, callback, tokens, expirations, and refresh.
+- Distinguishes public, private, draft/test, and production applications where applicable.
+- Identifies steps blocked by approval without blocking mocks and internal implementation.
 
-### [x] AMZ-011 — Implementar validação de configuração Amazon
+### [ ] AMZ-002 — Document the SP-API application and approval process
 
-**Prioridade/Tamanho:** P0 / S  
-**Dependências:** AMZ-003, AMZ-010
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-001
 
-**Entrega:** parser interno que falha cedo em combinações inválidas.
+**Deliverable:** operational checklist for Chameleon's application with Amazon.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Valida ambiente, região, callback e campos oficiais necessários.
-- Erros não exibem valores sensíveis.
-- Provider indisponível não aparece como habilitado no Hosted Connect.
+- Lists the registration, profile, use case, roles, URLs, and policies officially required.
+- Separates engineering, security, legal/compliance, and operations actions.
+- Does not direct Chameleon customers to create Amazon applications in the MVP.
+- Flags external dependencies and lead times without inventing deadlines.
 
-### [x] AMZ-012 — Criar `AmazonProvider`
+### [x] AMZ-003 — Map regions and marketplace IDs
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-011, contrato `MarketplaceProvider`
+**Priority/Size:** P0 / S  
+**Dependencies:** AMZ-001
 
-**Entrega:** adapter registrado no runtime interno.
+**Deliverable:** typed internal configuration for Amazon US.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- ID público do provider é `amazon`.
-- Backend SDK e orchestrator não recebem branches Amazon.
-- Capabilities opcionais são declaradas pelo provider.
-- Módulo não é empacotado em `@chameleon/backend` ou `@chameleon/react`.
+- Endpoint region and marketplace ID are distinct concepts.
+- US configuration is centralized and validated.
+- Adding Canada/Mexico in the future does not require changing public APIs.
 
-### [x] AMZ-013 — Criar HTTP clients internos LWA e SP-API
+### [ ] AMZ-004 — Map minimum roles and permissions
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-012
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-001, AMZ-002
 
-**Entrega:** clients separados usando o HTTP runtime comum.
+**Deliverable:** capability → role/permission matrix.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Suportam timeout, AbortSignal, request ID, retry hooks e transport fake.
-- Authorization headers, client secret e bodies sensíveis são redigidos.
-- Respostas têm validação de schema e limite de tamanho.
+- Connection and seller identity request only the minimum required.
+- Orders, finance, and restricted data are not part of the MVP consent.
+- A missing role has an error distinct from an invalid credential.
+
+### [ ] AMZ-005 — Update the threat model for Amazon
+
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-001 to AMZ-004
+
+**Deliverable:** threats and controls for the application secret, callback, LWA refresh token, seller ID, and RDT.
+
+**Acceptance criteria:**
+
+- Covers CSRF/replay, confused deputy, tenant mix-up, and callback manipulation.
+- Defines minimum plaintext access and mandatory redaction.
+- Reviews return URLs to prevent authorization code leakage/open redirect.
+
+---
+
+## Epic B — Internal configuration and provider
+
+### [ ] AMZ-010 — Store the Amazon application configuration in the vault
+
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-002, credential vault ready
+
+**Deliverable:** application ID, LWA client credentials, and other secrets per environment.
+
+**Acceptance criteria:**
+
+- Test/staging/live are isolated.
+- Plaintext is only accessible to the authorized Amazon runtime.
+- Changes produce an audit event.
+- No Amazon configuration is returned by the public dashboard/API/SDK.
+
+### [x] AMZ-011 — Implement Amazon configuration validation
+
+**Priority/Size:** P0 / S  
+**Dependencies:** AMZ-003, AMZ-010
+
+**Deliverable:** internal parser that fails early on invalid combinations.
+
+**Acceptance criteria:**
+
+- Validates environment, region, callback, and required official fields.
+- Errors do not display sensitive values.
+- An unavailable provider does not appear as enabled in Hosted Connect.
+
+### [x] AMZ-012 — Create `AmazonProvider`
+
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-011, `MarketplaceProvider` contract
+
+**Deliverable:** adapter registered in the internal runtime.
+
+**Acceptance criteria:**
+
+- The provider's public ID is `amazon`.
+- Backend SDK and orchestrator do not get Amazon branches.
+- Optional capabilities are declared by the provider.
+- The module is not bundled into `@chameleon/backend` or `@chameleon/react`.
+
+### [x] AMZ-013 — Create internal LWA and SP-API HTTP clients
+
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-012
+
+**Deliverable:** separate clients using the shared HTTP runtime.
+
+**Acceptance criteria:**
+
+- Support timeout, AbortSignal, request ID, retry hooks, and a fake transport.
+- Authorization headers, client secret, and sensitive bodies are redacted.
+- Responses have schema validation and a size limit.
 
 ---
 
 ## Epic C — Hosted seller authorization
 
-### [x] AMZ-020 — Habilitar Amazon em Connect Sessions
+### [x] AMZ-020 — Enable Amazon in Connect Sessions
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-012, Connect Session API pronta
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-012, Connect Session API ready
 
-**Entrega:** `provider: "amazon"` aceito pela Backend API/SDK quando o environment estiver configurado.
+**Deliverable:** `provider: "amazon"` accepted by the Backend API/SDK when the environment is configured.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Customer Secret Key identifica application/environment.
-- Organization, return URL e provider ficam vinculados ao token efêmero.
-- Session expira e não contém credential Amazon.
-- Provider desabilitado retorna erro acionável.
+- The customer Secret Key identifies the application/environment.
+- Organization, return URL, and provider are bound to the ephemeral token.
+- The session expires and contains no Amazon credential.
+- A disabled provider returns an actionable error.
 
-### [x] AMZ-021 — Gerar seller authorization URL
+### [x] AMZ-021 — Generate the seller authorization URL
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-013, AMZ-020
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-013, AMZ-020
 
-**Entrega:** `getAuthorizationUrl()` conforme fluxo oficial vigente.
+**Deliverable:** `getAuthorizationUrl()` according to the current official flow.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Usa callback Chameleon e application ID do environment correto.
-- State CSPRNG referencia uma OAuth transaction server-side single-use.
-- Browser não escolhe organization, connection ou callback livremente.
-- URL tem testes de encoding e parâmetros.
+- Uses the Chameleon callback and the application ID of the correct environment.
+- CSPRNG state references a single-use server-side OAuth transaction.
+- The browser cannot freely choose organization, connection, or callback.
+- The URL has encoding and parameter tests.
 
-### [ ] AMZ-022 — Exibir Amazon no Hosted Connect
+### [ ] AMZ-022 — Show Amazon in Hosted Connect
 
-**Prioridade/Tamanho:** P0 / S  
-**Dependências:** AMZ-020, Hosted Connect pronto
+**Priority/Size:** P0 / S  
+**Dependencies:** AMZ-020, Hosted Connect ready
 
-**Entrega:** estado de confirmação/redirect Amazon na UI hospedada.
+**Deliverable:** Amazon confirmation/redirect state in the hosted UI.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Exibe ambiente, marketplace e organização de maneira segura.
-- Loading, cancelamento e provider indisponível são tratados.
-- UI não recebe Secret Key, LWA secret ou provider token.
+- Displays environment, marketplace, and organization safely.
+- Loading, cancellation, and unavailable provider are handled.
+- The UI never receives the Secret Key, LWA secret, or provider token.
 
-### [x] AMZ-023 — Processar Hosted Callback Amazon
+### [x] AMZ-023 — Process the Amazon Hosted Callback
 
-**Prioridade/Tamanho:** P0 / L  
-**Dependências:** AMZ-021, callback orchestrator pronto
+**Priority/Size:** P0 / L  
+**Dependencies:** AMZ-021, callback orchestrator ready
 
-**Entrega:** parsing e validação dos parâmetros oficiais retornados pela Amazon.
+**Deliverable:** parsing and validation of the official parameters returned by Amazon.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Valida e consome state atomicamente.
-- Confere environment, provider, connection e transaction esperados.
-- Trata consentimento negado/cancelado com status e erro seguros.
-- Authorization code permanece somente no backend Chameleon.
+- Validates and consumes state atomically.
+- Checks the expected environment, provider, connection, and transaction.
+- Handles denied/cancelled consent with safe status and error.
+- The authorization code stays only in the Chameleon backend.
 
-### [ ] AMZ-024 — Garantir callback idempotente e transacional
+### [ ] AMZ-024 — Ensure an idempotent and transactional callback
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-023, distributed lock/idempotency prontos
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-023, distributed lock/idempotency ready
 
-**Entrega:** proteção contra callback repetido, concorrente e falha parcial.
+**Deliverable:** protection against repeated, concurrent callbacks and partial failure.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- State não pode ser consumido duas vezes.
-- Não duplica connection/account.
-- Falha antes do vault não produz status `CONNECTED`.
-- Retry interno seguro pode retomar finalização quando aplicável.
-
----
-
-## Epic D — Tokens LWA e credential lifecycle
-
-### [x] AMZ-030 — Trocar authorization code por tokens LWA
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-013, AMZ-023
-
-**Entrega:** code exchange server-to-server no runtime Chameleon.
-
-**Critérios de aceite:**
-
-- Usa client credentials do vault e redirect registrado.
-- Normaliza refresh/access token, expiração e metadata interna necessária.
-- Resposta incompleta/malformada gera erro tipado.
-- Tokens não aparecem em evento, redirect, SDK return, log ou snapshot.
-
-### [x] AMZ-031 — Criptografar e persistir seller credentials
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-030, credential vault pronto
-
-**Entrega:** credential envelope ligado a environment/connection/provider.
-
-**Critérios de aceite:**
-
-- Refresh token chega criptografado ao banco.
-- Associated data impede trocar ciphertext entre tenants/connections.
-- Envelope possui key version e timestamps.
-- Escrita participa da estratégia transacional de finalização.
-
-### [x] AMZ-032 — Implementar geração/refresh de access token LWA
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-031, refresh worker pronto
-
-**Entrega:** refresh preventivo e on-demand dentro da plataforma.
-
-**Critérios de aceite:**
-
-- Usa clock injetado e margem antes da expiração.
-- Distributed lock evita refresh storm.
-- Novo refresh token é persistido atomicamente quando houver rotação.
-- Invalid grant definitivo marca `REAUTHORIZATION_REQUIRED`.
-
-### [ ] AMZ-033 — Implementar cache seguro de access token
-
-**Prioridade/Tamanho:** P1 / M  
-**Dependências:** AMZ-032
-
-**Entrega:** cache interno curto e opcional.
-
-**Critérios de aceite:**
-
-- TTL é menor que validade oficial.
-- Cache miss/degradação não quebra correctness.
-- Keys de cache não expõem seller/token.
-- Tokens quase expirados não são entregues ao executor.
+- State cannot be consumed twice.
+- Does not duplicate connection/account.
+- A failure before the vault does not produce `CONNECTED` status.
+- A safe internal retry can resume finalization when applicable.
 
 ---
 
-## Epic E — Seller identity e connection
+## Epic D — LWA tokens and credential lifecycle
 
-### [x] AMZ-040 — Definir fonte canônica da seller identity
+### [x] AMZ-030 — Exchange the authorization code for LWA tokens
 
-**Prioridade/Tamanho:** P0 / S  
-**Dependências:** AMZ-001, AMZ-030
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-013, AMZ-023
 
-**Entrega:** ADR apontando dados oficiais usados para seller ID e marketplaces autorizados.
+**Deliverable:** server-to-server code exchange in the Chameleon runtime.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Não usa display name como identidade estável.
-- Documenta se dados vêm do callback, token context ou endpoint oficial.
-- Define comportamento para autorização sem marketplace US.
+- Uses client credentials from the vault and the registered redirect.
+- Normalizes refresh/access token, expiration, and required internal metadata.
+- An incomplete/malformed response produces a typed error.
+- Tokens do not appear in events, redirects, SDK returns, logs, or snapshots.
 
-### [x] AMZ-041 — Recuperar seller/account identity
+### [x] AMZ-031 — Encrypt and persist seller credentials
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-032, AMZ-040
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-030, credential vault ready
 
-**Entrega:** implementação de `getAccount()` no provider.
+**Deliverable:** credential envelope bound to environment/connection/provider.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Recupera identificador estável e marketplaces autorizados.
-- Usa somente permissões mínimas documentadas.
-- Payload bruto não cruza o provider boundary.
+- The refresh token reaches the database encrypted.
+- Associated data prevents swapping ciphertext between tenants/connections.
+- The envelope has a key version and timestamps.
+- The write participates in the transactional finalization strategy.
 
-### [x] AMZ-042 — Normalizar `MarketplaceAccount`
+### [x] AMZ-032 — Implement LWA access token generation/refresh
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-041
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-031, refresh worker ready
 
-**Entrega:** account pública com provider account ID, display name/country quando disponíveis e marketplace IDs.
+**Deliverable:** proactive and on-demand refresh within the platform.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Metadata Amazon permanece interna/tipada.
-- Mesma organization pode ter múltiplos sellers Amazon.
-- Reconectar o mesmo seller não duplica account.
-- Nenhum token ou role sensível aparece no objeto público.
+- Uses an injected clock and a margin before expiration.
+- A distributed lock prevents refresh storms.
+- A new refresh token is persisted atomically when rotated.
+- A definitive invalid grant marks `REAUTHORIZATION_REQUIRED`.
 
-### [ ] AMZ-043 — Finalizar connection e publicar evento
+### [ ] AMZ-033 — Implement a secure access token cache
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-024, AMZ-031, AMZ-042
+**Priority/Size:** P1 / M  
+**Dependencies:** AMZ-032
 
-**Entrega:** transição para `CONNECTED` e evento `connection.connected` via outbox.
+**Deliverable:** short-lived, optional internal cache.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Evento só é visível após commit.
-- SDK get/list enxerga account normalizada.
-- Hosted Connect retorna sucesso sem provider credential.
-
----
-
-## Epic F — Reconnect, disconnect, erros e throttling
-
-### [x] AMZ-050 — Normalizar erros LWA/SP-API
-
-**Prioridade/Tamanho:** P0 / L  
-**Dependências:** AMZ-013
-
-**Entrega:** mapper de config, consent, invalid grant, auth, roles, throttling e indisponibilidade.
-
-**Critérios de aceite:**
-
-- Erro público contém code, provider, retryable e Chameleon request ID.
-- Falta de role é distinguida de credencial expirada/revogada.
-- Cause sensível fica restrita, redigida e auditável.
-
-### [ ] AMZ-051 — Implementar throttling e retry hints
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-050, retry runtime pronto
-
-**Entrega:** interpretação dos sinais oficiais nas operações usadas pelo provider.
-
-**Critérios de aceite:**
-
-- Respeita retry delay oficial quando presente.
-- Usa backoff com jitter e orçamento máximo.
-- Não repete code exchange ou operação não idempotente sem garantia.
-
-### [x] AMZ-052 — Implementar reconnect Amazon
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-020 a AMZ-043
-
-**Entrega:** nova Connect Session/transaction para conexão que exige reautorização.
-
-**Critérios de aceite:**
-
-- Nunca reutiliza state/code anterior.
-- Mantém o connection ID Chameleon quando a política permitir.
-- Mesmo seller atualiza credentials/account atomicamente.
-
-### [ ] AMZ-053 — Implementar disconnect/revocation Amazon
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-043
-
-**Entrega:** disconnect idempotente e revogação oficial quando suportada.
-
-**Critérios de aceite:**
-
-- Impede refresh/execução imediatamente após transição.
-- Credenciais locais seguem a política de destruição/retenção.
-- Falha remota tem comportamento explícito e gera evento seguro.
+- TTL is shorter than the official validity.
+- Cache misses/degradation do not break correctness.
+- Cache keys do not expose seller/token.
+- Nearly expired tokens are not handed to the executor.
 
 ---
 
-## Epic G — Restricted Data Token isolado
+## Epic E — Seller identity and connection
 
-### [ ] AMZ-060 — Definir capability interna de RDT
+### [x] AMZ-040 — Define the canonical source of seller identity
 
-**Prioridade/Tamanho:** P2 / M  
-**Dependências:** AMZ-004, AMZ-032
+**Priority/Size:** P0 / S  
+**Dependencies:** AMZ-001, AMZ-030
 
-**Entrega:** contrato futuro para solicitar token por recurso protegido.
+**Deliverable:** ADR identifying the official data used for seller ID and authorized marketplaces.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- RDT não entra em `ProviderCredentials` genérico nem `MarketplaceAccount`.
-- Recurso/escopo é obrigatório e least-privilege.
-- Token não é persistido por padrão e tem TTL estrito.
-- Amazon Connect funciona sem esta capability.
+- Does not use display name as a stable identity.
+- Documents whether data comes from the callback, token context, or an official endpoint.
+- Defines behavior for an authorization without a US marketplace.
 
-### [ ] AMZ-061 — Implementar RDT client mockável
+### [x] AMZ-041 — Retrieve seller/account identity
 
-**Prioridade/Tamanho:** P2 / M  
-**Dependências:** AMZ-060
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-032, AMZ-040
 
-**Entrega:** client interno sem exportar token bruto nos SDKs públicos.
+**Deliverable:** implementation of `getAccount()` in the provider.
 
----
+**Acceptance criteria:**
 
-## Epic H — Backend SDK, Hosted Connect e webhooks
+- Retrieves a stable identifier and authorized marketplaces.
+- Uses only the documented minimum permissions.
+- Raw payload does not cross the provider boundary.
 
-### [x] AMZ-070 — Expor Amazon nos tipos do Backend SDK
+### [x] AMZ-042 — Normalize `MarketplaceAccount`
 
-**Prioridade/Tamanho:** P0 / S  
-**Dependências:** AMZ-020
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-041
 
-**Entrega:** `provider: "amazon"` em create/filter/result e documentação correspondente.
+**Deliverable:** public account with provider account ID, display name/country when available, and marketplace IDs.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- SDK envia chamadas somente à Chameleon Backend API.
-- Não adiciona LWA config, SP-API secret ou callback handler ao cliente.
+- Amazon metadata stays internal/typed.
+- The same organization can have multiple Amazon sellers.
+- Reconnecting the same seller does not duplicate the account.
+- No token or sensitive role appears in the public object.
 
-### [ ] AMZ-071 — Expor Amazon no Connect JS/React
+### [ ] AMZ-043 — Finalize the connection and publish an event
 
-**Prioridade/Tamanho:** P1 / S  
-**Dependências:** AMZ-022, frontend SDK pronto
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-024, AMZ-031, AMZ-042
 
-**Entrega:** label/logo/status e eventos genéricos.
+**Deliverable:** transition to `CONNECTED` and `connection.connected` event via outbox.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- UI não contém fluxo Amazon específico além de presentation metadata.
-- Retorno contém connection ID/status, nunca code/token.
-
-### [ ] AMZ-072 — Entregar eventos Amazon pelo webhook genérico
-
-**Prioridade/Tamanho:** P1 / M  
-**Dependências:** AMZ-043, AMZ-052, AMZ-053, webhook system pronto
-
-**Entrega:** connected, reauthorization required, disconnected e failed.
-
-**Critérios de aceite:**
-
-- Payload usa schema genérico de connection.
-- Delivery é assinado, at-least-once e deduplicável por event ID.
-- Nenhuma provider credential entra no payload.
+- The event is only visible after commit.
+- SDK get/list sees the normalized account.
+- Hosted Connect returns success without a provider credential.
 
 ---
 
-## Epic I — Testes, documentação e validação
+## Epic F — Reconnect, disconnect, errors, and throttling
 
-### [x] AMZ-080 — Criar testes unitários do provider
+### [x] AMZ-050 — Normalize LWA/SP-API errors
 
-**Prioridade/Tamanho:** P0 / L  
-**Dependências:** AMZ-020 a AMZ-053
+**Priority/Size:** P0 / L  
+**Dependencies:** AMZ-013
 
-**Entrega:** testes de authorization URL, callback, exchange, refresh, identity, erros e disconnect.
+**Deliverable:** mapper for config, consent, invalid grant, auth, roles, throttling, and unavailability.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Usa HTTP fake e fake clock; não acessa rede.
-- Cobre sucesso, negação, state inválido, payload malformado, invalid grant e throttling.
-- Verifica redaction em erros/logs/snapshots.
+- The public error contains code, provider, retryable, and Chameleon request ID.
+- A missing role is distinguished from an expired/revoked credential.
+- Sensitive cause is restricted, redacted, and auditable.
 
-### [ ] AMZ-081 — Executar provider contract tests
+### [ ] AMZ-051 — Implement throttling and retry hints
 
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-080
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-050, retry runtime ready
 
-**Entrega:** Amazon passa na mesma suíte de Etsy/eBay conforme capabilities.
+**Deliverable:** interpretation of the official signals in the operations used by the provider.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Orchestrator, Backend API e SDKs não têm branches Amazon.
-- Unsupported capabilities são declaradas, não simuladas.
+- Honors the official retry delay when present.
+- Uses backoff with jitter and a maximum budget.
+- Does not repeat code exchange or non-idempotent operations without a guarantee.
 
-### [x] AMZ-082 — Criar integração hosted ponta a ponta mockada
+### [x] AMZ-052 — Implement Amazon reconnect
 
-**Prioridade/Tamanho:** P0 / L  
-**Dependências:** AMZ-070, AMZ-071, AMZ-080, AMZ-081
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-020 to AMZ-043
 
-**Entrega:** Customer Backend SDK → Connect Session → Hosted Connect → callback → vault → account → webhook.
+**Deliverable:** new Connect Session/transaction for a connection that requires reauthorization.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Valida isolamento entre dois environments e duas organizations.
-- Confirma ciphertext no banco e ausência de token em superfícies públicas.
-- Exercita callback duplicado, refresh concorrente e falha parcial.
+- Never reuses a previous state/code.
+- Keeps the Chameleon connection ID when the policy allows.
+- The same seller updates credentials/account atomically.
 
-### [x] AMZ-083 — Documentar Amazon Connect para clientes
+### [ ] AMZ-053 — Implement Amazon disconnect/revocation
 
-**Prioridade/Tamanho:** P1 / M  
-**Dependências:** AMZ-070 a AMZ-082
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-043
 
-**Entrega:** quickstart usando apenas Chameleon keys, SDK e Hosted Connect.
+**Deliverable:** idempotent disconnect and official revocation when supported.
 
-**Critérios de aceite:**
+**Acceptance criteria:**
 
-- Cliente não precisa entender LWA, SP-API refresh ou provider secrets.
-- Explica estados, reconnect, webhooks e erros públicos.
-- Diferencia test/live e requisitos do seller.
-
-### [ ] AMZ-084 — Criar runbook operacional Amazon
-
-**Prioridade/Tamanho:** P1 / M  
-**Dependências:** AMZ-050, AMZ-051, observabilidade pronta
-
-**Entrega:** diagnóstico de provider outage, invalid credentials, approval/role failure, throttling e refresh storm.
-
-### [-] AMZ-090 — Validar com seller Amazon US real
-
-**Prioridade/Tamanho:** P0 / M  
-**Dependências:** AMZ-082, aplicação SP-API aprovada  
-**Bloqueio esperado:** aprovação Amazon, roles adequadas e seller US de teste
-
-**Critérios de aceite:**
-
-- Seller conclui autorização pelo Hosted Connect.
-- Callback Chameleon troca code e guarda refresh token no vault.
-- Backend SDK consulta connection/account normalizadas.
-- Refresh, reconnect, disconnect e webhook são validados.
-- Evidências são sanitizadas e não contêm token, code, secret ou PII desnecessária.
+- Blocks refresh/execution immediately after the transition.
+- Local credentials follow the destruction/retention policy.
+- Remote failure has explicit behavior and produces a safe event.
 
 ---
 
-## Ordem recomendada
+## Epic G — Isolated Restricted Data Token
+
+### [ ] AMZ-060 — Define an internal RDT capability
+
+**Priority/Size:** P2 / M  
+**Dependencies:** AMZ-004, AMZ-032
+
+**Deliverable:** future contract to request a token per protected resource.
+
+**Acceptance criteria:**
+
+- RDT does not enter the generic `ProviderCredentials` or `MarketplaceAccount`.
+- Resource/scope is mandatory and least-privilege.
+- The token is not persisted by default and has a strict TTL.
+- Amazon Connect works without this capability.
+
+### [ ] AMZ-061 — Implement a mockable RDT client
+
+**Priority/Size:** P2 / M  
+**Dependencies:** AMZ-060
+
+**Deliverable:** internal client that does not export the raw token in public SDKs.
+
+---
+
+## Epic H — Backend SDK, Hosted Connect, and webhooks
+
+### [x] AMZ-070 — Expose Amazon in Backend SDK types
+
+**Priority/Size:** P0 / S  
+**Dependencies:** AMZ-020
+
+**Deliverable:** `provider: "amazon"` in create/filter/result and the corresponding documentation.
+
+**Acceptance criteria:**
+
+- The SDK sends calls only to the Chameleon Backend API.
+- Does not add LWA config, SP-API secret, or a callback handler to the customer.
+
+### [ ] AMZ-071 — Expose Amazon in Connect JS/React
+
+**Priority/Size:** P1 / S  
+**Dependencies:** AMZ-022, frontend SDK ready
+
+**Deliverable:** label/logo/status and generic events.
+
+**Acceptance criteria:**
+
+- The UI contains no Amazon-specific flow beyond presentation metadata.
+- The return contains connection ID/status, never code/token.
+
+### [ ] AMZ-072 — Deliver Amazon events via the generic webhook
+
+**Priority/Size:** P1 / M  
+**Dependencies:** AMZ-043, AMZ-052, AMZ-053, webhook system ready
+
+**Deliverable:** connected, reauthorization required, disconnected, and failed.
+
+**Acceptance criteria:**
+
+- The payload uses the generic connection schema.
+- Delivery is signed, at-least-once, and deduplicable by event ID.
+- No provider credential enters the payload.
+
+---
+
+## Epic I — Tests, documentation, and validation
+
+### [x] AMZ-080 — Create provider unit tests
+
+**Priority/Size:** P0 / L  
+**Dependencies:** AMZ-020 to AMZ-053
+
+**Deliverable:** tests for authorization URL, callback, exchange, refresh, identity, errors, and disconnect.
+
+**Acceptance criteria:**
+
+- Uses a fake HTTP transport and fake clock; no network access.
+- Covers success, denial, invalid state, malformed payload, invalid grant, and throttling.
+- Verifies redaction in errors/logs/snapshots.
+
+### [ ] AMZ-081 — Run provider contract tests
+
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-080
+
+**Deliverable:** Amazon passes the same suite as Etsy/eBay according to capabilities.
+
+**Acceptance criteria:**
+
+- Orchestrator, Backend API, and SDKs have no Amazon branches.
+- Unsupported capabilities are declared, not simulated.
+
+### [x] AMZ-082 — Create a mocked end-to-end hosted integration
+
+**Priority/Size:** P0 / L  
+**Dependencies:** AMZ-070, AMZ-071, AMZ-080, AMZ-081
+
+**Deliverable:** Customer Backend SDK → Connect Session → Hosted Connect → callback → vault → account → webhook.
+
+**Acceptance criteria:**
+
+- Validates isolation between two environments and two organizations.
+- Confirms ciphertext in the database and absence of tokens on public surfaces.
+- Exercises duplicate callback, concurrent refresh, and partial failure.
+
+### [x] AMZ-083 — Document Amazon Connect for customers
+
+**Priority/Size:** P1 / M  
+**Dependencies:** AMZ-070 to AMZ-082
+
+**Deliverable:** quickstart using only Chameleon keys, SDK, and Hosted Connect.
+
+**Acceptance criteria:**
+
+- The customer does not need to understand LWA, SP-API refresh, or provider secrets.
+- Explains states, reconnect, webhooks, and public errors.
+- Distinguishes test/live and seller requirements.
+
+### [ ] AMZ-084 — Create an Amazon operational runbook
+
+**Priority/Size:** P1 / M  
+**Dependencies:** AMZ-050, AMZ-051, observability ready
+
+**Deliverable:** diagnosis of provider outage, invalid credentials, approval/role failure, throttling, and refresh storm.
+
+### [-] AMZ-090 — Validate with a real Amazon US seller
+
+**Priority/Size:** P0 / M  
+**Dependencies:** AMZ-082, approved SP-API application  
+**Expected blocker:** Amazon approval, appropriate roles, and a US test seller
+
+**Acceptance criteria:**
+
+- The seller completes authorization through Hosted Connect.
+- The Chameleon callback exchanges the code and stores the refresh token in the vault.
+- The Backend SDK queries normalized connection/account.
+- Refresh, reconnect, disconnect, and webhook are validated.
+- Evidence is sanitized and contains no token, code, secret, or unnecessary PII.
+
+---
+
+## Recommended order
 
 ```text
 AMZ-001…AMZ-005
@@ -629,18 +629,18 @@ AMZ-080…AMZ-084
 AMZ-090
 ```
 
-`AMZ-060` e `AMZ-061` só entram quando uma operação futura realmente exigir dados restritos.
+`AMZ-060` and `AMZ-061` only come in when a future operation actually requires restricted data.
 
-## Definition of Done Amazon
+## Amazon Definition of Done
 
-Amazon Connect está pronto quando:
+Amazon Connect is ready when:
 
-- o cliente usa somente Chameleon Publishable/Secret Keys;
-- toda autorização ocorre pelo Hosted Connect e callback Chameleon;
-- application secrets e seller tokens ficam no credential vault;
-- seller identity e marketplace IDs US são normalizados;
-- Backend SDK, frontend SDK e webhooks expõem apenas recursos Chameleon;
-- refresh, reconnect, disconnect, throttling e falhas têm comportamento seguro;
-- unit, contract, integration e security tests passam;
-- a abstração core não contém lógica específica da Amazon;
-- validação real está concluída ou é o único item bloqueado por aprovação externa.
+- the customer uses only Chameleon Publishable/Secret Keys;
+- all authorization happens through Hosted Connect and the Chameleon callback;
+- application secrets and seller tokens stay in the credential vault;
+- seller identity and US marketplace IDs are normalized;
+- Backend SDK, frontend SDK, and webhooks expose only Chameleon resources;
+- refresh, reconnect, disconnect, throttling, and failures have safe behavior;
+- unit, contract, integration, and security tests pass;
+- the core abstraction contains no Amazon-specific logic;
+- real validation is complete or is the only item blocked by external approval.

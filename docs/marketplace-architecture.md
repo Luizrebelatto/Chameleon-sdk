@@ -1,35 +1,35 @@
-# Arquitetura de conexões de marketplace
+# Marketplace connections architecture
 
-## Diagnóstico do ponto de partida
+## Starting-point assessment
 
-O repositório começou como um vertical slice Amazon em memória: `AmazonProvider` fazia LWA e SP-API; `AmazonConnectionService` mantinha conexão/callback; `AesGcmCredentialVault` protegia credenciais; e `createAmazonHostedApi` expunha Connect Sessions por Secret Key. Não havia autenticação de usuário Chameleon, RBAC de workspace, tentativas persistentes independentes, seleção de recursos, estado de sincronização, filas/workers ou adaptadores para outros marketplaces.
+The repository started as an in-memory Amazon vertical slice: `AmazonProvider` handled LWA and SP-API; `AmazonConnectionService` managed connections/callbacks; `AesGcmCredentialVault` protected credentials; and `createAmazonHostedApi` exposed Connect Sessions via Secret Key. There was no Chameleon user authentication, workspace RBAC, independent persistent attempts, resource selection, sync state, queues/workers, or adapters for other marketplaces.
 
-## Princípios Clerk e decisões Chameleon
+## Clerk principles and Chameleon decisions
 
-Da Clerk, o Chameleon adota a separação entre API pública no browser, chave publicável, sessão autenticada, API de backend por Secret Key e tela hospedada de redirecionamento. Isso permite que uma interface inicie a conexão com uma chamada do SDK, sem implementar OAuth no produto cliente.
+From Clerk, Chameleon adopts the separation between a public browser API, a publishable key, an authenticated session, a Secret Key backend API, and a hosted redirect screen. This lets a UI start a connection with a single SDK call, without implementing OAuth in the client product.
 
-O que é específico do Chameleon é que a autorização do usuário Chameleon não é a autorização do seller no marketplace. A primeira controla quem pode conectar/desconectar uma integração no workspace; a segunda concede acesso da conta externa. Uma conexão também não determina se a sincronização está saudável: `authorizationStatus` e `syncState` são independentes.
+What is specific to Chameleon is that the Chameleon user's authorization is not the seller's authorization on the marketplace. The former controls who can connect/disconnect an integration in the workspace; the latter grants access to the external account. A connection also does not determine whether sync is healthy: `authorizationStatus` and `syncState` are independent.
 
-## Modelo de domínio implementado
+## Implemented domain model
 
-| Conceito | Implementação de referência | Regra importante |
+| Concept | Reference implementation | Key rule |
 | --- | --- | --- |
-| `ConnectionAttempt` | estado efêmero em `AmazonConnectionService` | é vinculado no servidor a environment, workspace, usuário iniciador, intenção e destino permitido |
-| `MarketplaceConnection` | `PublicConnection` | vínculo persistente lógico com o workspace; ciclo de autorização separado de sync |
-| `CredentialSet` | `CredentialVault` AES-256-GCM | credenciais novas ficam em escopo da tentativa antes de serem promovidas à conexão |
-| `MarketplaceResource` | recursos Amazon descobertos via marketplace participation | usa identificador estável do provider; não nome/e-mail |
-| `SyncState` | `NOT_STARTED`, `QUEUED`, `SYNCING`, `HEALTHY`, `DEGRADED`, `FAILED`, `DISABLED` | workers atualizam somente sync, nunca reclassificam uma autorização válida como desconectada |
+| `ConnectionAttempt` | ephemeral state in `AmazonConnectionService` | bound on the server to environment, workspace, initiating user, intent, and allowed destination |
+| `MarketplaceConnection` | `PublicConnection` | logical persistent link to the workspace; authorization lifecycle separate from sync |
+| `CredentialSet` | AES-256-GCM `CredentialVault` | new credentials stay in the attempt scope before being promoted to the connection |
+| `MarketplaceResource` | Amazon resources discovered via marketplace participation | uses the provider's stable identifier, not name/e-mail |
+| `SyncState` | `NOT_STARTED`, `QUEUED`, `SYNCING`, `HEALTHY`, `DEGRADED`, `FAILED`, `DISABLED` | workers only update sync and never reclassify a valid authorization as disconnected |
 
-Uma tentativa usa `created`, `awaiting_authorization`, `processing`, `awaiting_selection`, `completed`, `failed`, `cancelled` ou `expired`. O retorno ao produto contém `attempt_id`, `connection_id`, `connection_status` e nenhum código OAuth, token ou segredo.
+An attempt uses `created`, `awaiting_authorization`, `processing`, `awaiting_selection`, `completed`, `failed`, `cancelled`, or `expired`. The return to the product contains `attempt_id`, `connection_id`, `connection_status`, and no OAuth code, token, or secret.
 
-Nesta referência, o mesmo seller Amazon só pode estar ligado a um workspace por environment; uma segunda associação é rejeitada sem revelar o workspace que já o possui. `disconnect` libera essa associação. Em uma implementação multi-região, a chave de unicidade deve incluir a região do provider.
+In this reference, the same Amazon seller can only be linked to one workspace per environment; a second association is rejected without revealing which workspace already owns it. `disconnect` releases that association. In a multi-region implementation, the uniqueness key must include the provider region.
 
-## Fronteiras de confiança
+## Trust boundaries
 
 ```text
-UI Chameleon ── pk_ + sessão Chameleon ──► Frontend API ─┐
-                                                         ├─► valida RBAC do workspace
-Backend do cliente ── sk_ ─────────────────► Backend API ─┘        │
+Chameleon UI ── pk_ + Chameleon session ──► Frontend API ─┐
+                                                          ├─► validates workspace RBAC
+Client backend ── sk_ ─────────────────────► Backend API ─┘        │
                                                                      ▼
                                                           ConnectionAttempt
                                                                      │
@@ -37,51 +37,51 @@ Seller Central / provider callback ─────────► Hosted Connect
                                                                      ▼
                                                             Credential Vault
                                                                      │
-                                                         worker/outbox de sync
+                                                          sync worker/outbox
 ```
 
-`WorkspaceAuthorizer` é a fronteira para o RBAC real do Chameleon. A implementação de referência mantém o comportamento legado de Secret Key confiável quando ele não é configurado; em produção ele deve ser obrigatório. A rota pública (`/v1/frontend/connect_sessions`) exige tanto um autenticador de sessão quanto `WorkspaceAuthorizer`. A origem do browser também deve ser permitida por `isAllowedFrontendOrigin` para habilitar CORS.
+`WorkspaceAuthorizer` is the boundary to Chameleon's real RBAC. The reference implementation keeps the legacy trusted-Secret-Key behavior when it is not configured; in production it must be mandatory. The public route (`/v1/frontend/connect_sessions`) requires both a session authenticator and `WorkspaceAuthorizer`. The browser origin must also be allowed by `isAllowedFrontendOrigin` to enable CORS.
 
-## Contratos HTTP atuais
+## Current HTTP contracts
 
-| Rota | Autenticação | Função |
+| Route | Authentication | Purpose |
 | --- | --- | --- |
-| `POST /v1/frontend/connect_sessions` | `pk_` + sessão Chameleon | inicia a UX direta do browser |
-| `GET/POST /v1/frontend/connections/*` e `/v1/frontend/connection_attempts/*` | `pk_` + sessão Chameleon | leitura, seleção, reconnect, disconnect e cancelamento na interface |
-| `POST /v1/connect_sessions` | `sk_` | compatibilidade para backends confiáveis |
-| `GET /v1/marketplaces` | `sk_` | catálogo de disponibilidade e capacidades por provider |
-| `GET /v1/connection_attempts/:id` | `sk_` | consulta uma tentativa sem segredos |
-| `POST /v1/connection_attempts/:id/cancel` | `sk_` | cancela tentativa em aberto |
-| `GET /v1/connections/:id` | `sk_` | consulta autorização, recursos, permissões e sync |
-| `POST /v1/connections/:id/resources` | `sk_` | seleciona recursos quando o provider exige essa etapa |
-| `POST /v1/connections/:id/reconnect` | `sk_` | cria nova tentativa para a mesma conexão |
-| `POST /v1/connections/:id/disconnect` | `sk_` | cessa uso das credenciais e desabilita sync |
+| `POST /v1/frontend/connect_sessions` | `pk_` + Chameleon session | starts the direct browser UX |
+| `GET/POST /v1/frontend/connections/*` and `/v1/frontend/connection_attempts/*` | `pk_` + Chameleon session | reading, selection, reconnect, disconnect, and cancellation in the UI |
+| `POST /v1/connect_sessions` | `sk_` | compatibility for trusted backends |
+| `GET /v1/marketplaces` | `sk_` | availability and capability catalog per provider |
+| `GET /v1/connection_attempts/:id` | `sk_` | reads an attempt without secrets |
+| `POST /v1/connection_attempts/:id/cancel` | `sk_` | cancels an open attempt |
+| `GET /v1/connections/:id` | `sk_` | reads authorization, resources, permissions, and sync |
+| `POST /v1/connections/:id/resources` | `sk_` | selects resources when the provider requires that step |
+| `POST /v1/connections/:id/reconnect` | `sk_` | creates a new attempt for the same connection |
+| `POST /v1/connections/:id/disconnect` | `sk_` | stops using the credentials and disables sync |
 
-Os endpoints de callback Amazon continuam internos ao domínio hospedado do Chameleon.
+The Amazon callback endpoints remain internal to Chameleon's hosted domain.
 
-## Capacidade por marketplace
+## Capability per marketplace
 
-| Marketplace | Estado neste repositório | Fatos confirmados que guiam o adapter |
+| Marketplace | Status in this repository | Confirmed facts guiding the adapter |
 | --- | --- | --- |
-| Amazon | **operacional (US)** | autorização de website/LWA, descoberta de marketplaces e SigV4; seleção opcional de marketplaces |
-| eBay | documentado, não configurado | Application token e User token são distintos; dados do seller exigem User token, consentimento e RuName/scopes |
-| TikTok Shop | documentado, não configurado | seller access/refresh tokens, escopos concedidos e descoberta de lojas autorizadas; operações de loja usam `shop_cipher` quando exigido |
-| Temu | documentado, não configurado | suporte oficial a autorização manual e por callback; o fluxo varia por tipo/região do seller |
-| Walmart | documentado, não configurado | OAuth para Solution Providers aprovados; instalação pode começar pelo App Store e usa code/refresh token |
+| Amazon | **operational (US)** | website/LWA authorization, marketplace discovery, and SigV4; optional marketplace selection |
+| eBay | documented, not configured | Application tokens and User tokens are distinct; seller data requires a User token, consent, and RuName/scopes |
+| TikTok Shop | documented, not configured | seller access/refresh tokens, granted scopes, and discovery of authorized shops; shop operations use `shop_cipher` when required |
+| Temu | documented, not configured | official support for manual and callback authorization; the flow varies by seller type/region |
+| Walmart | documented, not configured | OAuth for approved Solution Providers; installation may start from the App Store and uses code/refresh token |
 
-As entradas não Amazon ficam no `MarketplaceProviderRegistry` com `availability: "not_configured"`. Não há endpoints, scopes, tempos de expiração ou formatos de credenciais inventados para elas.
+The non-Amazon entries live in `MarketplaceProviderRegistry` with `availability: "not_configured"`. No endpoints, scopes, expiration times, or credential formats are invented for them.
 
-Fontes oficiais: [Amazon SP-API](https://developer-docs.amazon.com/sp-api/docs/website-authorization-workflow), [eBay authorization](https://developer.ebay.com/develop/guides/sell/authorization), [TikTok Shop entity tags](https://partner.tiktokshop.com/docv2/page/api-entity-tags), [TikTok authorized shops](https://partner.tiktokshop.com/docv2/page/get-authorized-shops), [Temu Seller Authorization Guide](https://partner.temu.com/documentation?menu_code=38e79b35d2cb463d85619c1c786dd303) e [Walmart OAuth authorization](https://developer.walmart.com/us-marketplace/docs/oauth-20-authorization).
+Official sources: [Amazon SP-API](https://developer-docs.amazon.com/sp-api/docs/website-authorization-workflow), [eBay authorization](https://developer.ebay.com/develop/guides/sell/authorization), [TikTok Shop entity tags](https://partner.tiktokshop.com/docv2/page/api-entity-tags), [TikTok authorized shops](https://partner.tiktokshop.com/docv2/page/get-authorized-shops), [Temu Seller Authorization Guide](https://partner.temu.com/documentation?menu_code=38e79b35d2cb463d85619c1c786dd303), and [Walmart OAuth authorization](https://developer.walmart.com/us-marketplace/docs/oauth-20-authorization).
 
-## Migração para produção
+## Production migration
 
-Esta entrega não adiciona banco, fila ou identidade Chameleon porque o repositório não possuía esses serviços. A migração deve criar tabelas/coleções equivalentes a `connection_attempts`, `marketplace_connections`, `authorization_grants`, `marketplace_resources`, `sync_states` e uma outbox de eventos. Índices únicos devem cobrir provider, environment, região quando aplicável e ID externo. As credenciais precisam ir para KMS/envelope encryption, não para o vault em memória.
+This delivery does not add a database, queue, or Chameleon identity because the repository did not have those services. The migration must create tables/collections equivalent to `connection_attempts`, `marketplace_connections`, `authorization_grants`, `marketplace_resources`, `sync_states`, and an event outbox. Unique indexes must cover provider, environment, region when applicable, and external ID. Credentials must go to KMS/envelope encryption, not the in-memory vault.
 
-Ao migrar, execute a leitura do estado Amazon existente como uma conexão com `syncState: NOT_STARTED`, crie uma tentativa somente para fluxos novos e não migre tokens para respostas públicas. Use lock distribuído por grant durante refresh e uma transação/outbox para promoção de credenciais, ativação da conexão e enfileiramento da primeira sincronização.
+When migrating, load the existing Amazon state as a connection with `syncState: NOT_STARTED`, create an attempt only for new flows, and do not migrate tokens into public responses. Use a distributed lock per grant during refresh and a transaction/outbox for credential promotion, connection activation, and enqueuing the first sync.
 
-## Limitações deliberadas
+## Deliberate limitations
 
-- A implementação é uma referência em memória: não oferece durabilidade, lock distribuído, worker, queue, webhook ou revogação remota Amazon.
-- A integração Amazon é US e depende de aplicação SP-API aprovada, callbacks HTTPS registrados, roles e seller de teste para validação real.
-- Os demais adapters exigem onboarding, credenciais, ambiente/sandbox e contract tests por provider antes de serem habilitados.
-- `@chameleon/react` ainda não é um pacote separado. O browser-safe `createChameleonFrontendClient` foi incluído no pacote de referência e pode embasar esse pacote público.
+- The implementation is an in-memory reference: it provides no durability, distributed lock, worker, queue, webhook, or remote Amazon revocation.
+- The Amazon integration is US-only and depends on an approved SP-API application, registered HTTPS callbacks, roles, and a test seller for real validation.
+- The other adapters require onboarding, credentials, an environment/sandbox, and per-provider contract tests before being enabled.
+- `@chameleon/react` is not yet a separate package. The browser-safe `createChameleonFrontendClient` was included in the reference package and can serve as the basis for that public package.
